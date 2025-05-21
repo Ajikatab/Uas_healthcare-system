@@ -6,46 +6,57 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  DOCTOR
+  PATIENT
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String
-  role          UserRole  @default(PATIENT)
-  name          String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  patients      Patient[]
-  appointments  Appointment[]
+  id             String    @id @default(cuid())
+  email          String    @unique
+  password       String
+  role           UserRole  @default(PATIENT)
+  name           String
+  specialization String?   // Optional field for doctors
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  patients       Patient[]
+  appointments   Appointment[] // Relation for doctors
   @@map("users")
 }
 
 model Patient {
-  id            String    @id @default(cuid())
-  userId        String
-  dateOfBirth   DateTime
-  bloodType     String?
-  allergies     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  user          User      @relation(fields: [userId], references: [id])
+  id             String    @id @default(cuid())
+  userId         String
+  dateOfBirth    DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id])
   medicalRecords MedicalRecord[]
   appointments   Appointment[]
   @@map("patients")
 }
 
 model MedicalRecord {
-  id          String    @id @default(cuid())
-  patientId   String
-  diagnosis   String
-  prescription String?
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  patient     Patient   @relation(fields: [patientId], references: [id])
+  id            String    @id @default(cuid())
+  patientId     String
+  diagnosis     String
+  prescription  String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  patient       Patient   @relation(fields: [patientId], references: [id])
   @@map("medical_records")
 }
 
@@ -61,16 +72,4 @@ model Appointment {
   patient     Patient   @relation(fields: [patientId], references: [id])
   doctor      User      @relation(fields: [doctorId], references: [id])
   @@map("appointments")
-}
-
-enum UserRole {
-  ADMIN
-  DOCTOR
-  PATIENT
-}
-
-enum AppointmentStatus {
-  SCHEDULED
-  COMPLETED
-  CANCELLED
 }

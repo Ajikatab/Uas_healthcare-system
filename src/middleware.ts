@@ -3,43 +3,55 @@ import { NextResponse } from "next/server";
 
 export default withAuth(
   function middleware(req) {
-    // Get the pathname of the request
-    const path = req.nextUrl.pathname;
-    
-    // Get the token from the session
     const token = req.nextauth.token;
-    
-    // Admin only paths
-    if (path.startsWith("/admin")) {
-      if (token?.role !== "ADMIN") {
-        return NextResponse.redirect(new URL("/unauthorized", req.url));
-      }
+    const path = req.nextUrl.pathname;
+
+    // Allow public routes and authentication routes
+    if (path === "/" || path.startsWith("/auth") || path.startsWith("/api/auth")) {
+      return NextResponse.next();
     }
-    
-    // Doctor only paths
-    if (path.startsWith("/doctor")) {
-      if (token?.role !== "DOCTOR" && token?.role !== "ADMIN") {
-        return NextResponse.redirect(new URL("/unauthorized", req.url));
-      }
+
+    // Ensure user is authenticated
+    if (!token) {
+      return NextResponse.redirect(new URL("/auth", req.url));
     }
-    
-    // Protected patient paths
-    if (path.startsWith("/patient")) {
-      if (!token) {
-        return NextResponse.redirect(new URL("/auth/signin", req.url));
-      }
+
+    // Role-based redirects
+    if (token.role === "PATIENT" && !path.startsWith("/patient") && !path.startsWith("/appointments")) {
+      return NextResponse.redirect(new URL("/patient/dashboard", req.url));
+    }
+
+    if (token.role === "DOCTOR" && !path.startsWith("/doctor")) {
+      return NextResponse.redirect(new URL("/doctor/dashboard", req.url));
+    }
+
+    if (token.role === "ADMIN" && !path.startsWith("/admin")) {
+      return NextResponse.redirect(new URL("/admin/dashboard", req.url));
     }
 
     return NextResponse.next();
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token, req }) => {
+        // Allow public routes and authentication routes
+        if (req.nextUrl.pathname.startsWith("/auth") || req.nextUrl.pathname.startsWith("/api/auth") || req.nextUrl.pathname === "/") {
+          return true;
+        }
+        return !!token;
+      },
     },
   }
 );
 
-// Protect these paths with authentication
 export const config = {
-  matcher: ["/admin/:path*", "/doctor/:path*", "/patient/:path*", "/api/:path*"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
 };

@@ -1,19 +1,39 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { withProtectedApi } from '@/lib/api-middleware';
 
-export async function GET(req: Request) {
-  return withProtectedApi(req, async () => {
+// Get available doctors
+export async function GET(req: NextRequest) {
+  try {
     const doctors = await prisma.user.findMany({
       where: {
         role: 'DOCTOR'
       },
+      orderBy: {
+        name: 'asc'
+      },
       select: {
         id: true,
         name: true,
+        specialization: true
       }
     });
 
-    return NextResponse.json(doctors);
-  });
+    return new NextResponse(
+      JSON.stringify({ data: doctors }),
+      { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  } catch (error) {
+    console.error('Error fetching doctors:', error);
+    return new NextResponse(
+      JSON.stringify({ error: 'Internal server error' }),
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
 }

@@ -1,8 +1,8 @@
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { PrismaAdapter } from "@auth/prisma-adapter";
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
-import { compare } from "bcryptjs";
+import bcryptjs from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -10,17 +10,17 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "text", placeholder: "your@email.com" },
+        name: { label: "Full Name", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Invalid credentials");
+        if (!credentials?.name || !credentials?.password) {
+          throw new Error("Required fields missing");
         }
 
-        const user = await prisma.user.findUnique({
+        const user = await prisma.user.findFirst({
           where: {
-            email: credentials.email,
+            name: credentials.name,
           },
         });
 
@@ -28,7 +28,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("User not found");
         }
 
-        const isValid = await compare(credentials.password, user.password);
+        const isValid = await bcryptjs.compare(credentials.password, user.password);
 
         if (!isValid) {
           throw new Error("Invalid password");
@@ -43,12 +43,9 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: {
-    strategy: "jwt",
-  },
   pages: {
-    signIn: "/auth/signin",
-    error: "/auth/error",
+    signIn: "/auth",
+    error: "/auth?error=true",
   },
   callbacks: {
     async jwt({ token, user }) {
@@ -59,12 +56,20 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user.role = token.role;
-        session.user.id = token.id;
+      if (token && session.user) {
+        session.user.role = token.role as "ADMIN" | "DOCTOR" | "PATIENT";
+        session.user.id = token.id as string;
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith(baseUrl)) return url;
+      else if (url.startsWith("/")) return `${baseUrl}${url}`;
+      return baseUrl;
+    },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  session: {
+    strategy: "jwt",
+  },
+  secret: process.env.NEXTAUTH_SECRET || "your-fallback-secret",
 };

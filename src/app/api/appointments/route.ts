@@ -1,18 +1,19 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { withProtectedApi } from '@/lib/api-middleware';
 import { z } from 'zod';
 import { sanitizeInput } from '@/lib/security';
 
-// Appointment input validation schema
+// Schema for input validation
 const appointmentSchema = z.object({
-  patientId: z.string().uuid(),
-  doctorId: z.string().uuid(),
-  dateTime: z.string().datetime(),
+  doctorId: z.string(),
+  dateTime: z.string().transform((val) => new Date(val)),
   notes: z.string().optional(),
 });
 
-export async function POST(req: Request) {
+// Create appointment
+export async function POST(req: NextRequest) {
   return withProtectedApi(req, async (request, token) => {
     try {
       const body = await request.json();
@@ -27,13 +28,32 @@ export async function POST(req: Request) {
       const doctor = await prisma.user.findFirst({
         where: {
           id: validatedData.doctorId,
-          role: 'DOCTOR',
+          role: 'DOCTOR'
         },
+        select: {
+          id: true,
+          name: true,
+          specialization: true
+        }
       });
 
       if (!doctor) {
-        return NextResponse.json(
-          { error: 'Doctor not found' },
+        return new NextResponse(
+          JSON.stringify({ error: 'Doctor not found' }),
+          { status: 404 }
+        );
+      }
+
+      // Find patient record for the current user
+      const patient = await prisma.patient.findFirst({
+        where: {
+          userId: token.id
+        }
+      });
+
+      if (!patient) {
+        return new NextResponse(
+          JSON.stringify({ error: 'Patient profile not found' }),
           { status: 404 }
         );
       }
@@ -41,53 +61,86 @@ export async function POST(req: Request) {
       // Create appointment
       const appointment = await prisma.appointment.create({
         data: {
-          patientId: validatedData.patientId,
+          patientId: patient.id,
           doctorId: validatedData.doctorId,
-          dateTime: new Date(validatedData.dateTime),
+          dateTime: validatedData.dateTime,
           notes: sanitizedNotes,
         },
+        include: {
+          doctor: {
+            select: {
+              name: true,
+              specialization: true
+            }
+          }
+        }
       });
 
-      return NextResponse.json(appointment, { status: 201 });
+      return new NextResponse(
+        JSON.stringify(appointment),
+        { status: 201 }
+      );
     } catch (error) {
+      console.error('Error creating appointment:', error);
       if (error instanceof z.ZodError) {
-        return NextResponse.json(
-          { error: error.errors },
+        return new NextResponse(
+          JSON.stringify({ error: error.errors }),
           { status: 400 }
         );
       }
-      
-      throw error; // Will be caught by withProtectedApi
+      return new NextResponse(
+        JSON.stringify({ error: 'Internal server error' }),
+        { status: 500 }
+      );
     }
-  }, ['PATIENT', 'DOCTOR', 'ADMIN']);
+  });
 }
 
-export async function GET(req: Request) {
+// Get appointments for the current user
+export async function GET(req: NextRequest) {
   return withProtectedApi(req, async (request, token) => {
-    const { searchParams } = new URL(request.url);
-    const patientId = searchParams.get('patientId');
-    const doctorId = searchParams.get('doctorId');
+    try {
+      // Find patient record for the current user
+      const patient = await prisma.patient.findFirst({
+        where: {
+          userId: token.id
+        }
+      });
 
-    // Build where clause based on role and query params
-    const where: any = {};
-    if (token.role === 'PATIENT') {
-      where.patientId = token.id;
-    } else if (token.role === 'DOCTOR') {
-      where.doctorId = token.id;
-    } else if (patientId) {
-      where.patientId = patientId;
-    } else if (doctorId) {
-      where.doctorId = doctorId;
+      if (!patient) {
+        return new NextResponse(
+          JSON.stringify({ error: 'Patient profile not found' }),
+          { status: 404 }
+        );
+      }
+
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          patientId: patient.id
+        },
+        include: {
+          doctor: {
+            select: {
+              name: true,
+              specialization: true
+            }
+          }
+        },
+        orderBy: {
+          dateTime: 'desc'
+        }
+      });
+
+      return new NextResponse(
+        JSON.stringify(appointments),
+        { status: 200 }
+      );
+    } catch (error) {
+      console.error('Error fetching appointments:', error);
+      return new NextResponse(
+        JSON.stringify({ error: 'Internal server error' }),
+        { status: 500 }
+      );
     }
-
-    const appointments = await prisma.appointment.findMany({
-      where,
-      include: {
-        patient: true,
-        doctor: true,
-      },
-    });
-
-    return NextResponse.json(appointments);
-  }, ['PATIENT', 'DOCTOR', 'ADMIN']);
+  });
 }
